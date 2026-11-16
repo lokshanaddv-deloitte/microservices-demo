@@ -1,4 +1,4 @@
-name: Online Boutique CI/CD
+name: Online Boutique AWS CI/CD
  
 on:
   push:
@@ -12,9 +12,14 @@ permissions:
   id-token: write
   contents: read
  
+env:
+  AWS_REGION: ap-south-1
+  AWS_ACCOUNT_ID: "063570951089"
+  ECR_REPOSITORY: online-boutique
+ 
 jobs:
-  aws-connect:
-    name: Connect GitHub Actions to AWS
+  build-and-push:
+    name: Build and Push Docker Images
     runs-on: ubuntu-latest
  
     steps:
@@ -22,17 +27,48 @@ jobs:
         uses: actions/checkout@v4
  
       - name: Configure AWS credentials
+        if: github.event_name == 'push'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ap-south-1
+          aws-region: ${{ env.AWS_REGION }}
  
       - name: Verify AWS identity
+        if: github.event_name == 'push'
         run: aws sts get-caller-identity
  
       - name: Login to Amazon ECR
+        if: github.event_name == 'push'
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
  
-      - name: Verify ECR login
-        run: echo "Successfully connected to Amazon ECR"
+      - name: Build and push microservice images
+        if: github.event_name == 'push'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          services=(
+            adservice
+            cartservice
+            checkoutservice
+            currencyservice
+            emailservice
+            frontend
+            loadgenerator
+            paymentservice
+            productcatalogservice
+            recommendationservice
+            shippingservice
+          )
+ 
+          for service in "${services[@]}"; do
+            echo "Building $service"
+ 
+            docker build \
+              -t "$ECR_REGISTRY/$ECR_REPOSITORY:$service-$IMAGE_TAG" \
+              "./src/$service"
+ 
+            docker push \
+              "$ECR_REGISTRY/$ECR_REPOSITORY:$service-$IMAGE_TAG"
+          done
