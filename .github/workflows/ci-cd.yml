@@ -35,7 +35,6 @@ jobs:
         with:
           script: |
             const token = await core.getIDToken('sts.amazonaws.com');
-
             const payload = JSON.parse(
               Buffer.from(token.split('.')[1], 'base64url').toString()
             );
@@ -95,14 +94,36 @@ jobs:
             echo "Building $service"
             echo "=================================="
 
+            SERVICE_DIR="./src/$service"
+            DOCKERFILE="$SERVICE_DIR/Dockerfile"
+            IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:$service-$IMAGE_TAG"
+
+            # Check service directory
+            if [[ ! -d "$SERVICE_DIR" ]]; then
+              echo "ERROR: Service directory not found: $SERVICE_DIR"
+              exit 1
+            fi
+
+            # Check Dockerfile
+            if [[ ! -f "$DOCKERFILE" ]]; then
+              echo "ERROR: Dockerfile not found: $DOCKERFILE"
+              echo "Files available in $SERVICE_DIR:"
+              ls -la "$SERVICE_DIR"
+              exit 1
+            fi
+
+            echo "Dockerfile found: $DOCKERFILE"
+
+            # Build Docker image
             docker build \
-              -t "$ECR_REGISTRY/$ECR_REPOSITORY:$service-$IMAGE_TAG" \
-              "./src/$service"
+              --file "$DOCKERFILE" \
+              --tag "$IMAGE" \
+              "$SERVICE_DIR"
 
             echo "Pushing $service to ECR"
 
-            docker push \
-              "$ECR_REGISTRY/$ECR_REPOSITORY:$service-$IMAGE_TAG"
+            # Push Docker image to AWS ECR
+            docker push "$IMAGE"
 
             echo "$service pushed successfully"
 
@@ -113,4 +134,4 @@ jobs:
         if: success() && github.event_name == 'push'
         run: |
           echo "Online Boutique CI/CD pipeline completed!"
-          echo "Docker images pushed to AWS ECR."
+          echo "All Docker images pushed to AWS ECR."
