@@ -24,11 +24,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout source code
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Step 2: Diagnose GitHub OIDC identity
       - name: Check GitHub OIDC Subject
         if: github.event_name == 'push'
         uses: actions/github-script@v7
@@ -44,7 +42,6 @@ jobs:
             core.info(`Repository ID: ${payload.repository_id}`);
             core.info(`Owner ID: ${payload.repository_owner_id}`);
 
-      # Step 3: Authenticate with AWS
       - name: Configure AWS credentials
         if: github.event_name == 'push'
         uses: aws-actions/configure-aws-credentials@v4
@@ -52,19 +49,16 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # Step 4: Verify AWS authentication
       - name: Verify AWS identity
         if: github.event_name == 'push'
         run: |
           aws sts get-caller-identity
 
-      # Step 5: Login to Amazon ECR
       - name: Login to Amazon ECR
         if: github.event_name == 'push'
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # Step 6: Build and push Docker images
       - name: Build and push microservice images
         if: github.event_name == 'push'
         env:
@@ -94,42 +88,47 @@ jobs:
             echo "Building $service"
             echo "=================================="
 
-            SERVICE_DIR="./src/$service"
-            DOCKERFILE="$SERVICE_DIR/Dockerfile"
+            # Set the correct build context
+            if [[ "$service" == "cartservice" ]]; then
+              BUILD_CONTEXT="./src/cartservice/src"
+            else
+              BUILD_CONTEXT="./src/$service"
+            fi
+
+            DOCKERFILE="$BUILD_CONTEXT/Dockerfile"
             IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:$service-$IMAGE_TAG"
 
-            # Check service directory
-            if [[ ! -d "$SERVICE_DIR" ]]; then
-              echo "ERROR: Service directory not found: $SERVICE_DIR"
+            # Check build context
+            if [[ ! -d "$BUILD_CONTEXT" ]]; then
+              echo "ERROR: Build context not found: $BUILD_CONTEXT"
               exit 1
             fi
 
             # Check Dockerfile
             if [[ ! -f "$DOCKERFILE" ]]; then
               echo "ERROR: Dockerfile not found: $DOCKERFILE"
-              echo "Files available in $SERVICE_DIR:"
-              ls -la "$SERVICE_DIR"
+              echo "Files available:"
+              ls -la "$BUILD_CONTEXT"
               exit 1
             fi
 
-            echo "Dockerfile found: $DOCKERFILE"
+            echo "Using Dockerfile: $DOCKERFILE"
+            echo "Using build context: $BUILD_CONTEXT"
 
             # Build Docker image
             docker build \
-              --file "$DOCKERFILE" \
-              --tag "$IMAGE" \
-              "$SERVICE_DIR"
+              -f "$DOCKERFILE" \
+              -t "$IMAGE" \
+              "$BUILD_CONTEXT"
 
+            # Push Docker image
             echo "Pushing $service to ECR"
-
-            # Push Docker image to AWS ECR
             docker push "$IMAGE"
 
             echo "$service pushed successfully"
 
           done
 
-      # Step 7: Completion message
       - name: Pipeline completed
         if: success() && github.event_name == 'push'
         run: |
